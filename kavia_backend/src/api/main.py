@@ -56,12 +56,41 @@ app = FastAPI(
     ],
 )
 
+# -------------------------------------------------------------------
+# CORS CONFIGURATION - Allow frontend dev and prod origins
+# -------------------------------------------------------------------
+# PUBLIC_INTERFACE
+# Allow frontend (React) origins. Extend to production domain as needed.
+frontend_dev_origin = "http://localhost:3000"
+# Replace with the planned production domain for deployment
+frontend_prod_origin = "https://meet.kavia.ai"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust in prod
+    allow_origins=[frontend_dev_origin, frontend_prod_origin],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+    ],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "Access-Control-Allow-Origin",
+        "Access-Control-Allow-Credentials",
+    ],
+    expose_headers=[
+        "Content-Disposition",
+        "Access-Control-Allow-Origin",
+        "Access-Control-Allow-Credentials",
+    ],
 )
 
 # -------------------------------------------------------------------
