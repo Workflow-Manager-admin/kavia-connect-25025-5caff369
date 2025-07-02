@@ -110,8 +110,9 @@ class User(UserBase):
     id: int
     email: EmailStr
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class MeetingBase(BaseModel):
     topic: str
@@ -126,8 +127,9 @@ class Meeting(MeetingBase):
     id: int
     code: str
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class MessageBase(BaseModel):
     meeting_id: int
@@ -139,8 +141,9 @@ class MessageBase(BaseModel):
 class Message(MessageBase):
     id: int
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 class TranslationRequest(BaseModel):
     text: str
