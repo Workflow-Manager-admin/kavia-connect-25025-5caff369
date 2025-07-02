@@ -16,6 +16,33 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 import datetime
 import os
+from fastapi import Depends, HTTPException, status, Body
+from sqlalchemy.orm import Session
+from jose import jwt
+from passlib.context import CryptContext
+
+# --- Auth/Password Utility Setup ---
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password against stored hash."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    """Hash a plain password."""
+    return pwd_context.hash(password)
+
+# --- JWT Utility (minimal demo, production should rotate/secure key) ---
+SECRET_KEY = os.environ.get("KAVIA_SECRET_KEY", "devsecretkey123")
+ALGORITHM = "HS256"
+
+def create_access_token(data: dict, expires_delta: int = 3600):
+    """Generate a JWT access token for the user."""
+    import time
+    to_encode = data.copy()
+    to_encode.update({"exp": int(time.time()) + expires_delta})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
 
 # -------------------------------------------------------------------
 # DATABASE SETUP
@@ -218,10 +245,103 @@ class MessageORM(Base):
 Base.metadata.create_all(bind=engine)
 
 # -------------------------------------------------------------------
-# API ROUTER PLACEHOLDER (to be implemented for each feature)
+# USER REGISTRATION & LOGIN ENDPOINTS
 # -------------------------------------------------------------------
-# Example: include_router(user_router, prefix="/users", tags=["user"])
-# from . import user, meeting, chat, translation, etc.
+
+# Response schema for auth endpoints
+class AuthResponse(BaseModel):
+    access_token: str = Field(..., description="JWT access token")
+    token_type: str = Field("bearer", description="Token type")
+    user: User
+
+# PUBLIC_INTERFACE
+@app.post("/register", response_model=User, summary="Register a new user", tags=["user"])
+def register_user(
+    user: UserCreate = Body(..., description="User registration data"),
+    db: Session = Depends(get_db)
+):
+    """
+    Register a new user.
+
+    Parameters:
+        user: UserCreate body containing username, email, password, etc.
+
+    Returns:
+        The created User object.
+
+    Error codes:
+        400: Username or email already exists.
+    """
+    # Check for existing user
+    existing = db.query(UserORM).filter(
+        (UserORM.username == user.username) | (UserORM.email == getattr(user, "email", None))
+    ).first()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username or email already registered.")
+    # Ensure email supplied and valid
+    try:
+        email = user.email
+    except AttributeError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is required.")
+    # Hash password securely
+    password_hash = get_password_hash(user.password)
+    db_user = UserORM(
+        username=user.username,
+        email=email,
+        display_name=user.display_name,
+        language=user.language or "en",
+        is_active=True,
+        password_hash=password_hash,
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return User(
+        id=db_user.id,
+        username=db_user.username,
+        display_name=db_user.display_name,
+        language=db_user.language,
+        is_active=db_user.is_active,
+        email=db_user.email,
+    )
+
+class LoginRequest(BaseModel):
+    """Login request body."""
+    username: str = Field(..., description="Username")
+    password: str = Field(..., description="Password")
+
+# PUBLIC_INTERFACE
+@app.post("/login", response_model=AuthResponse, summary="Authenticate user and get access token", tags=["user"])
+def login_user(
+    credentials: LoginRequest = Body(..., description="User credentials"),
+    db: Session = Depends(get_db)
+):
+    """
+    Authenticate a user and issue a JWT token.
+
+    Parameters:
+        credentials: LoginRequest with username & password.
+
+    Returns:
+        Auth object with JWT access_token, token_type, and user details.
+
+    Error codes:
+        401: Invalid username or password.
+    """
+    user_obj = db.query(UserORM).filter(UserORM.username == credentials.username).first()
+    if user_obj is None or not verify_password(credentials.password, user_obj.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password.")
+    # Compose User response
+    user_out = User(
+        id=user_obj.id,
+        username=user_obj.username,
+        display_name=user_obj.display_name,
+        language=user_obj.language,
+        is_active=user_obj.is_active,
+        email=user_obj.email,
+    )
+    access_token = create_access_token({"sub": user_out.username, "user_id": user_out.id})
+    return AuthResponse(access_token=access_token, token_type="bearer", user=user_out)
 
 # -------------------------------------------------------------------
 # USAGE NOTES
